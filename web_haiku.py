@@ -244,9 +244,8 @@ class Page(object):
 
 
 
-    URL = property(lambda self: application_uri(self.environ))
-
     def go(self):
+        self.URL = application_uri(self.environ)
         name = shift_path_info(self.environ)
         if name:
             return self.handle_child(name)
@@ -278,6 +277,7 @@ class Page(object):
         self.db = getattr(self.parent, 'db', None)
 
     parent = None
+
 
 
 
