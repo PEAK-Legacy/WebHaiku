@@ -7,7 +7,7 @@ from setuptools import setup
 
 # Metadata
 PACKAGE_NAME = "WebHaiku"
-PACKAGE_VERSION = "0.1"
+PACKAGE_VERSION = "0.5"
 
 def get_description():
     # Get our long description from the documentation
