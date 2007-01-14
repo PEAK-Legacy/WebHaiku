@@ -244,12 +244,14 @@ class Page(object):
 
 
 
+    URL = property(lambda self: application_uri(self.environ))
+
     def go(self):
         name = shift_path_info(self.environ)
         if name:
             return self.handle_child(name)
 
-        url = application_uri(self.environ).rstrip('/')
+        url = self.URL.rstrip('/')
         leaf = not self.sub_pages and type(self).handle_child == Page.handle_child
 
         if name=='':    # trailing /
@@ -276,8 +278,6 @@ class Page(object):
         self.db = getattr(self.parent, 'db', None)
 
     parent = None
-
-
 
 
 
@@ -414,7 +414,7 @@ class Page(object):
         """Override this in a subclass to return a DBAPI connection object"""
         raise NotImplementedError
 
-    def query(self, *args, **kw):
+    def cursor(self, *args, **kw):
         """Create and return a cursor (after optionally running a query on it)
 
         If positional arguments are supplied, they're passed to the cursor's
@@ -435,16 +435,16 @@ class Page(object):
 
         return cursor
 
+    def query(self, *args, **kw):
+        csr = self.cursor(*args, **kw)
+        return (Row(csr,r) for rows in iter(csr.fetchmany,[]) for r in rows)
+            
 
+class Row(object):
+    """Easy-access dict/object wrapper for DBAPI row tuples"""
 
-
-
-
-
-
-
-
-
+    def __init__(self, cursor, row):
+        self.__dict__ = dict(self, zip([d[0]for d in cursor.description], row))
 
 
 
