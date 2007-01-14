@@ -4,10 +4,10 @@ import cgi, string, new, sys
 from wsgiref.util import shift_path_info, application_uri
 
 __all__ = [
-    "Page", "form_handler", "HTML", "Text", "Template", "HTTP",    
-    "EvalTemplate", "EvalMap", "Method",  
+    "Page", "form_handler", "HTML", "Text", "Template", "HTTP",
+    "EvalTemplate", "EvalMap", "Method",
 ]
-    
+
 class Method(object):
     """Turn any object into a method"""
     def __init__(self, func):
@@ -22,7 +22,7 @@ class HTTP(Method):
 
     cls_registry = "http_methods"
 
-def form_handler(arg):    
+def form_handler(arg):
     """Decorator that marks an object as a registered validator"""
     def decorator(func):
         func.cls_registry = "form_handlers"
@@ -62,18 +62,18 @@ class EvalMap(object):
                 sys.modules[self.module].__dict__, self
             )
         elif key in self.extra:
-            return self.extra[key]            
+            return self.extra[key]
         else:
             ob = getattr(self.page, key, sentinel)
             if ob is not sentinel:
                 return ob
-            g = sys.modules[self.module].__dict__                
+            g = sys.modules[self.module].__dict__
             if key in g:
                 return g[key]
         if key=='self':
             return self
         raise KeyError
-           
+
 class EvalTemplate(string.Template):
     idpattern = r'[_a-z][_a-z0-9]*|\(\?[^?]*\?\)'
 
@@ -137,7 +137,7 @@ class Text(Method):
     def method(cls, *args, **kw):
         """Template method that can be called with keyword arguments"""
         return Method(cls(caller = get_module(), *args, **kw).render)
-        
+
     @classmethod
     def page(cls, *args, **kw):
         """Template sub-page (returns a Page subclass w/template as its body)
@@ -168,9 +168,9 @@ class HTML(Text):
     Note: templates cannot be directly invoked from the web unless they
     are created with HTML.page() or HTML.http_method(), or used as a Page's
     ``body`` attribute.
-    """   
+    """
     headers = text_html,
-    
+
 
 class Template(HTML):
     """TurboGears/Buffet template that can be used as a method
@@ -192,7 +192,7 @@ class Template(HTML):
         else:
             raise RuntimeError("Template engine %r is not installed" % (engine,))
         return name
-        
+
     def render(self, page, kw={}):
         return self.engine.render(
             EvalMap(page,kw,self.caller), template=self.template
@@ -210,7 +210,7 @@ class Page(object):
     http_methods = []
     sub_pages = []
     body = None
-    
+
     class __metaclass__(type):
         def __init__(cls, name, bases, cdict):
             for k in dir(cls):
@@ -231,7 +231,7 @@ class Page(object):
         cls = type(self)
         for k, v in kw.items():
             getattr(cls,k)  # AttributeError here means bad keyword arg
-            setattr(self,k,v)            
+            setattr(self,k,v)
         self.setup()    # perform any dynamic initialization
 
     def HEAD(self):
@@ -253,7 +253,7 @@ class Page(object):
         leaf = not self.sub_pages and type(self).handle_child == Page.handle_child
 
         if name=='':    # trailing /
-            if not leaf:            
+            if not leaf or self.environ.get('SCRIPT_NAME')=='/':
                 return self.invoke_method()
         elif name is None:    # no trailing /
             if leaf:
@@ -316,7 +316,7 @@ class Page(object):
         '<meta http-equiv="refresh" content="0;url=$url" />'
         '</head><body><a href="$url">Click here</a></body></html>',
         status='302 Found',
-    )    
+    )
 
     NOT_FOUND = Text(
         "404 not found\n"
@@ -329,8 +329,8 @@ class Page(object):
     form_handlers = []
     form_parsed = False
     form_data = ()
-    form_defaults = {}   
-    
+    form_defaults = {}
+
     def get_handlers(self):
         handlers = [getattr(self,k) for k in self.form_handlers]
         handlers.sort(key=lambda h: h.priority)
@@ -367,7 +367,7 @@ class Page(object):
 
 
 
-    # A miserably inadequate attempt at a decent UI...  
+    # A miserably inadequate attempt at a decent UI...
 
     errors_found = HTML.fragment(
         '<ul class="form_errors"><li class="form_error">'
@@ -453,7 +453,7 @@ class TestForm(Page):
     """A stupid example to test the framework"""
 
     form_defaults = dict(name='Joey', animal='Dog', email='joe@dog.com')
-    
+
     body = form_failure = HTML("""<?xml version="1.0" encoding="iso-8859-1"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
     "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
@@ -487,7 +487,7 @@ class TestForm(Page):
         r'$(? "</li><li class=\"form_error\">".join(errors) ?)'
         '</li></ul>'
     )
-    
+
 
 
 class TestContainer(Page):
