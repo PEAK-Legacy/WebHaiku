@@ -4,19 +4,27 @@ import cgi, string, new, sys
 from wsgiref.util import shift_path_info, application_uri
 
 __all__ = [
-    "HTTP", "validator", "Template", "HTML", "Text", "Page", "Container",
-    "Form", "EvalTemplate", "EvalMap", "Method",
+    "Page", "Form", "validator", "HTML", "Text", "Template", "HTTP",    
+    "EvalTemplate", "EvalMap", "Method",  
 ]
     
-class HTTP(object):
-    cls_registry = "http_methods"
+class Method(object):
+    """Turn any object into a method"""
     def __init__(self, func):
-        self.func = func
+        self.call = func
+
     def __get__(self, ob, typ=None):
         if ob is None: return self
-        return self.func.__get__(ob,typ)
+        return new.instancemethod(self.call, ob, typ)
+
+class HTTP(Method):
+    """Wrapper/decorator that marks an object as an HTTP method"""
+
+    cls_registry = "http_methods"
+
 
 def validator(func):
+    """Decorator that marks an object as a registered validator"""
     func.cls_registry = "registered_validators"
     return func
 
@@ -24,15 +32,7 @@ text_plain = ('Content-Type', 'text/plain')
 text_html  = ('Content-Type', 'text/html')
 
 def get_module():
-    return sys._getframe(2).f_globals.get('__name__')
-
-
-
-
-
-
-
-
+    return sys._getframe(2).f_globals.get('__name__', __name__)
 
 
 
@@ -44,9 +44,10 @@ sentinel = object()
 class EvalMap(object):
     """Object that translates from getitem->getattr"""
 
-    def __init__(self, ob, extra={}):
-        self.ob = ob
+    def __init__(self, page, extra={}, module=__name__):
+        self.page = page
         self.extra = dict(extra)    # always copy, to allow mod by listcomps
+        self.module = module
 
     def __setitem__(self, key, value):  # needed for listcomp exprs!
         self.extra[key] = value
@@ -56,13 +57,19 @@ class EvalMap(object):
 
     def __getitem__(self, key):
         if key.startswith('(?'):
-            return eval(key[2:].rstrip('?)').strip(), globals(), self)
+            return eval(
+                key[2:].rstrip(')').rstrip('?').strip(),
+                sys.modules[self.module].__dict__, self
+            )
         elif key in self.extra:
             return self.extra[key]            
         else:
-            ob = getattr(self.ob, key, sentinel)
+            ob = getattr(self.page, key, sentinel)
             if ob is not sentinel:
                 return ob
+            g = sys.modules[self.module].__dict__                
+            if key in g:
+                return g[key]
         if key=='self':
             return self
         raise KeyError
@@ -71,21 +78,17 @@ class EvalTemplate(string.Template):
     idpattern = r'[_a-z][_a-z0-9]*|\(\?[^?]*\?\)'
 
 
-class Method(object):
-    def __init__(self, func):
-        self.call = func
-
-    def __get__(self, ob, typ=None):
-        if ob is None: return self
-        return new.instancemethod(self.call, ob, typ)
 
 
 class Text(Method):
     """Text template w/string substitution that can be used as a method
 
-    Note: templates cannot be directly invoked from the web unless wrapped in
-    HTTP() as a request method like GET or POST.
-    """   
+    Note: templates cannot be directly invoked from the web unless they
+    are created with Text.page() or Text.http_method(), or used as a Page's
+    ``body`` attribute.
+    """
+
+    cls_registry = None
     factory = EvalTemplate
     status  = '200 OK'
     headers = text_plain,
@@ -115,21 +118,56 @@ class Text(Method):
              body = resource_string(self.caller, self.resource)
              self.template = self.factory(body, **self.options)
              self.resource = None
-        return self.template.substitute(EvalMap(page, kw))
+        return self.template.substitute(EvalMap(page, kw, self.caller))
+
 
     @classmethod
     def fragment(cls, *args, **kw):
+        """Template property that returns its rendered body"""
         return property(cls(caller = get_module(), *args, **kw).render)
 
     @classmethod
-    def function(cls, *args, **kw):
+    def http_method(cls, *args, **kw):
+        """Template that can be used as an HTTP method (GET, POST, PUT, etc.)"""
+        return cls(
+            caller=get_module(), cls_registry='http_methods', *args, **kw
+        )
+
+    @classmethod
+    def method(cls, *args, **kw):
+        """Template method that can be called with keyword arguments"""
         return Method(cls(caller = get_module(), *args, **kw).render)
+        
+    @classmethod
+    def page(cls, *args, **kw):
+        """Template sub-page (returns a Page subclass w/template as its body)
+
+        If you supply a `type` keyword argument, that type is used as the base
+        class for the page.  The other arguments are used to create the
+        template to be used as the returned class' ``body`` attribute.
+        """
+        caller = get_module()
+        class _Page(kw.get('type',Page)):
+            body = cls(caller=caller, *args, **kw)
+        return _Page
+
+
+
+
+
+
+
+
+
+
+
 
 class HTML(Text):
     """HTML template w/string substitution that can be used as a method
 
-    Note: templates cannot be directly invoked from the web unless wrapped in
-    HTTP() as a request method like GET or POST.
+    Note: templates cannot be directly invoked from the web unless they
+    are created with HTML.page() or HTML.http_method(), or used as a Page's
+    ``body`` attribute.
     """   
     headers = text_html,
     
@@ -137,8 +175,9 @@ class HTML(Text):
 class Template(HTML):
     """TurboGears/Buffet template that can be used as a method
 
-    Note: templates cannot be directly invoked from the web unless wrapped in
-    HTTP() as a request method like GET or POST.
+    Note: templates cannot be directly invoked from the web unless they
+    are created with Template.page() or Template.http_method(), or used as a
+    Page's ``body`` attribute.
     """
 
     engine = None
@@ -155,19 +194,23 @@ class Template(HTML):
         return name
         
     def render(self, page, kw={}):
-        return self.engine.render(EvalMap(page,kw), template=self.template)
+        return self.engine.render(
+            EvalMap(page,kw,self.caller), template=self.template
+        )
 
 
 
 
 
 
-class Page:
-    """A page with no children"""
+class Page(object):
+    """A generic web location"""
 
-    cls_registry = "pages"
+    cls_registry = "sub_pages"
     http_methods = []
-
+    sub_pages = []
+    body = None
+    
     class __metaclass__(type):
         def __init__(cls, name, bases, cdict):
             for k in dir(cls):
@@ -182,101 +225,140 @@ class Page:
             self = type.__call__(cls, *args, **kw)
             return self.go()
 
-    def __init__(self, environ, start_response):
+    def __init__(self, environ, start_response, **kw):
         self.environ = environ
         self.start_response = start_response
-        self.errors = []
+        cls = type(self)
+        for k, v in kw.items():
+            getattr(cls,k)  # AttributeError here means bad keyword arg
+            setattr(self,k,v)            
+        self.setup()    # perform any dynamic initialization
 
-    def go(self):
+    def invoke_method(self):
         rm = self.environ['REQUEST_METHOD']
-        if rm in self.http_methods:
+        if rm=='GET' and self.body is not None:
+            return self.body()
+        if rm=='HEAD' or rm in self.http_methods:
             return getattr(self, rm)()
-
-        return self._method_not_allowed(
+        return self.METHOD_NOT_ALLOWED(
             [('Allow', ', '.join(self.http_methods))]
         )
 
-    @HTTP
     def HEAD(self):
-        resp = iter(self.GET())     # this will fail if no GET!
+        environ['REQUEST_METHOD'] = 'GET'
+        resp = iter(self.invoke_method())   # forward to 'GET'
         list(resp)      # questionable hack to exhaust the response
         return resp     # ensure that .close() gets called, if any
 
+    def go(self):
+        name = shift_path_info(self.environ)
+        if name:
+            return self.handle_child(name)
 
-    _method_not_allowed = Text(
-        "405 Method not allowed", status="405 Method not allowed",
+        url = application_uri(self.environ).rstrip('/')
+        leaf = not self.sub_pages and type(self).handle_child == Page.handle_child
+
+        if name=='':    # trailing /
+            if not leaf:            
+                return self.invoke_method()
+        elif name is None:    # no trailing /
+            if leaf:
+                return self.invoke_method()
+            url += '/'  # add the trailing /
+        return self.redirect(url)
+
+    def handle_child(self, name):
+        if name in self.sub_pages:
+            return getattr(self, name)(
+                self.environ, self.start_response, parent=self
+            )
+        return self.NOT_FOUND()
+
+    def redirect(self, url):
+        return self.REDIRECT_TO([('Location', url)], url=url)
+
+    def setup(self):
+        self.errors = []
+        self.db = getattr(self.parent, 'db', None)
+
+    parent = None
+
+
+
+    METHOD_NOT_ALLOWED = Text(
+        "Excellent method!\n"
+        "Alas, my response must be:\n"
+        '"I cannot comply."',
+        status="405 Method not allowed",
     )
 
-    _redirect = HTML(
+    REDIRECT_TO = HTML(
         '<html><head>'
         '<meta http-equiv="refresh" content="0;url=$url" />'
         '</head><body><a href="$url">Click here</a></body></html>',
         status='302 Found',
     )    
 
-    def redirect(self, url, ):
-        return self._redirect([('Location', url)], url=url)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-class Container(Page):
-    """A page that may have children, and delegates to them"""
-
-    def go(self):
-        name = shift_path_info(self.environ)
-        if name=='':
-            # it's us, not our contents, handle normally
-            return super(Container, self).go()
-
-        if name is None:
-            # They left off the trailing / - redirect so relative URLs will
-            # be correct...
-            url = application_uri(self.environ)
-            if not url.endswith('/'):
-                url += '/'
-            return self.redirect(url)
-
-        sub_app = self[name]
-        if sub_app is not None:
-            return sub_app(self.environ, self.start_response)
-
-        return self.not_found()
-
-    not_found = Text(
+    NOT_FOUND = Text(
         "404 not found\n"
         "You deserve a kinder note\n"
         "Than this web haiku!\n",
         status  = '404 Not Found',
     )
 
-    def __getitem__(self, key):
-        if key in self.pages:
-            return getattr(self, key)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    db = None   # DBAPI database connection object
+
+    def db_connect(self):
+        """Override this in a subclass to return a DBAPI connection object"""
+        raise NotImplementedError
+
+    def query(self, *args, **kw):
+        """Create and return a cursor (after optionally running a query on it)
+
+        If positional arguments are supplied, they're passed to the cursor's
+        ``execute()`` method.  If keyword arguments are supplied, they are
+        used to set cursor attributes prior to the ``execute()`` (if
+        applicable).
+        """
+        db = self.db
+        if db is None:
+            db = self.db = self.db_connect()
+
+        cursor = db.cursor()
+        for k, v in kw.items():
+            setattr(cursor, k, v)
+
+        if args:
+            cursor.execute(*args)
+
+        return cursor
+
+
+
+
+
+
+
 
 
 
@@ -310,7 +392,7 @@ class Form(Page):
 
     succeed = Text("Oops.  Someone forgot to create a form or method here.")
 
-    GET = HTTP(succeed) # you should replace this with the form's template
+    body = succeed  # you should replace this with the form's template
 
     def parse(self):
         self.data = cgi.FieldStorage(
@@ -372,7 +454,7 @@ class TestForm(Form):
 
     defaults = dict(name='Joey', animal='Dog', email='joe@dog.com')
     
-    fail = HTML("""<?xml version="1.0" encoding="iso-8859-1"?>
+    body = fail = HTML("""<?xml version="1.0" encoding="iso-8859-1"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
     "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -382,11 +464,11 @@ class TestForm(Form):
  <form method="post">
   <table>
    <tr><td>What is your name ?</td>
-       <td><input type="text" name="name" value="$name"/></td></tr>
+       <td><input type="text" name="name" value="$(?cgi.escape(name)?)"/></td></tr>
    <tr><td>What is your favorite animal ?</td>
-       <td><input type="text" name="animal" value="$animal"/></td></tr>
+       <td><input type="text" name="animal" value="$(?cgi.escape(animal)?)"/></td></tr>
    <tr><td>What is your email address ?</td>
-       <td><input type="text" name="email" value="$email"/></td></tr>
+       <td><input type="text" name="email" value="$(?cgi.escape(email)?)"/></td></tr>
    <tr><td colspan="2"><input type="submit" /></td></tr>
   </table>
  </form>
@@ -394,7 +476,6 @@ class TestForm(Form):
 </html>
 """)
     succeed = Text("Hey Joe!")
-    GET = HTTP(fail)
 
     @validator
     def check_joe(self):
@@ -408,9 +489,10 @@ class TestForm(Form):
     )
     
 
-class TestContainer(Container):
 
-    GET = HTTP(HTML("""<?xml version="1.0" encoding="iso-8859-1"?>
+class TestContainer(Page):
+
+    body = HTML("""<?xml version="1.0" encoding="iso-8859-1"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
     "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
@@ -419,16 +501,16 @@ class TestContainer(Container):
     <ul><li><a href="a">Hello world</a></li><li><a href="b">Hello Joe</a></li>
     <li><a href="c">Subcontainer</a></li>
     </ul>
-</body></html>"""))
+</body></html>""")
 
-    class a(Page):
-        GET = HTTP(Text("Hello world!"))
-
+    a = Text.page("Hello world!")
     b = TestForm
-
-    c = Container   # placeholder
+    c = Page   # placeholder
 
 TestContainer.c = TestContainer     # allow some depth to the test...
+
+
+
 
 
 
