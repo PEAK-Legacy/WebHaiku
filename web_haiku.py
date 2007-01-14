@@ -72,7 +72,7 @@ class EvalMap(object):
                 return g[key]
         if key=='self':
             return self
-        raise KeyError
+        raise KeyError(key)
 
 class EvalTemplate(string.Template):
     idpattern = r'[_a-z][_a-z0-9]*|\(\?[^?]*\?\)'
@@ -330,6 +330,7 @@ class Page(object):
     form_parsed = False
     form_data = ()
     form_defaults = {}
+    escape = cgi.escape
 
     def get_handlers(self):
         handlers = [getattr(self,k) for k in self.form_handlers]
@@ -364,7 +365,6 @@ class Page(object):
             return self.form_failure()
         else:
             return self.form_success()
-
 
 
     # A miserably inadequate attempt at a decent UI...
@@ -444,7 +444,7 @@ class Row(object):
     """Easy-access dict/object wrapper for DBAPI row tuples"""
 
     def __init__(self, cursor, row):
-        self.__dict__ = dict(self, zip([d[0]for d in cursor.description], row))
+        self.__dict__ = dict(zip([d[0]for d in cursor.description], row))
 
 
 
@@ -464,11 +464,11 @@ class TestForm(Page):
  <form method="post">
   <table>
    <tr><td>What is your name ?</td>
-       <td><input type="text" name="name" value="$(?cgi.escape(name)?)"/></td></tr>
+       <td><input type="text" name="name" value="$(?escape(name)?)"/></td></tr>
    <tr><td>What is your favorite animal ?</td>
-       <td><input type="text" name="animal" value="$(?cgi.escape(animal)?)"/></td></tr>
+       <td><input type="text" name="animal" value="$(?escape(animal)?)"/></td></tr>
    <tr><td>What is your email address ?</td>
-       <td><input type="text" name="email" value="$(?cgi.escape(email)?)"/></td></tr>
+       <td><input type="text" name="email" value="$(?escape(email)?)"/></td></tr>
    <tr><td colspan="2"><input type="submit" /></td></tr>
   </table>
  </form>
