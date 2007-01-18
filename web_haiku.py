@@ -339,9 +339,9 @@ class Page(object):
 
     def __getattr__(self, name):
         """Dynamic attributes from form_data and defaults"""
-        if not name.startswith('_') and name in self.form_data:
-            return self.form_data[name].value
-        if name in self.form_defaults:
+        if name in self.form_defaults:  # form vars must be explicitly listed 
+            if name in self.form_data:
+                return self.form_data[name].value
             return self.form_defaults[name]
         raise AttributeError(name)
 
