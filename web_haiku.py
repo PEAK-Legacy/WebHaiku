@@ -301,6 +301,9 @@ class Page(object):
             if leaf:
                 return self.invoke_method()
             url += '/'  # add the trailing /
+
+        if self.environ.get('QUERY_STRING'):
+            url += '?' + self.environ['QUERY_STRING']
         return self.redirect(url)
 
     def handle_child(self, name):
@@ -323,9 +326,6 @@ class Page(object):
 
 
 
-
-
-
     def invoke_method(self):
         rm = self.environ['REQUEST_METHOD']
         if rm=='HEAD' or rm in self.http_methods:
@@ -343,7 +343,7 @@ class Page(object):
         if self.form_handlers:
             methods.add('POST')
 
-        return self.METHOD_NOT_ALLOWED([('Allow', ', '.join(methods))])
+        return self.METHOD_NOT_ALLOWED([('Allow', ', '.join(sorted(methods)))])
 
     METHOD_NOT_ALLOWED = Text(
         "Excellent method!\n"
