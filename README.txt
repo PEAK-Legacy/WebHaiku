@@ -10,6 +10,10 @@ from ``wsgiref``, it is entirely self-contained, but it can also be used with
 TurboGears/Buffet template engine plugins.  (In which case, setuptools and the
 appropriate plugin(s) are also required.)
 
+
+Pages and HTTP Methods
+======================
+
 WebHaiku uses classes to represent web-accessible objects::
 
     >>> from web_haiku import Page, test, HTML
@@ -40,7 +44,8 @@ automatically supported::
     <BLANKLINE>
     <BLANKLINE>
 
-But ``POST`` requests are not (because we didn't define any form handlers)::
+But ``POST`` requests are not (because we didn't define any form handlers; see
+the `Form Handling`_ section, below)::
 
     >>> test(HelloPage, form={"a":"b"})
     HTTP/1.0 405 Method not allowed
@@ -53,7 +58,7 @@ But ``POST`` requests are not (because we didn't define any form handlers)::
     "I cannot comply."
 
 Notice that the response contains an automatically-generated ``Allow:`` header,
-listing the request methods implemented.  You can add to the allowed methods by
+listing the HTTP methods implemented.  You can add to these allowed methods by
 defining ``HTTP`` methods::
 
     >>> from web_haiku import HTTP
@@ -83,6 +88,10 @@ And the ``Allow`` for unrecognized methods will now include ``POST``::
     Alas, my response must be:
     "I cannot comply."
 
+
+Child URLs
+==========
+
 By default, pages have no child URLs, and any attempt to access such URLs
 results in a 404 response::
 
@@ -96,13 +105,23 @@ results in a 404 response::
     Than this web haiku!
     ...
 
-But you can create subpages using either template objects, or embedded
-classes::
+But you can create subpages using template objects, embedded ``Page`` classes,
+or ``@expose`` methods (or `Dynamic Children`_ as described later below)::
+
+    >>> from web_haiku import expose
 
     >>> class Container(Page):
     ...     x = HTML.page("This is page X")
+    ... 
     ...     class y(Page):
     ...         body = HTML("This is page Y")
+    ... 
+    ...     @expose
+    ...     def z(self):
+    ...         self.start_response(
+    ...             "200 Yeah!", [('Content-type','text/plain')]
+    ...         )
+    ...         return ['I be da Z!']
 
     >>> test(Container, PATH_INFO="/x")
     HTTP/1.0 200 OK
@@ -114,7 +133,26 @@ classes::
     ...
     This is page Y
 
-Also note that even if a page has children, it must still have a ``body`` of
+    >>> test(Container, PATH_INFO="/z")
+    HTTP/1.0 200 Yeah!
+    ...
+    I be da Z!
+
+
+
+Dynamic Children
+----------------
+
+You can implement dynamic child URLs by overriding the ``handle_child()``
+method of your pages...  XXX
+
+
+
+
+Special URL Handling for Container Pages and Leaf Pages
+-------------------------------------------------------
+
+Note that even if a page has children, it must still have a ``body`` of
 its own to support ``GET`` operations::
 
     >>> test(Container)
@@ -158,10 +196,39 @@ URLs only.  Query strings, however, are included in the redirection::
     ...<meta http-equiv="refresh" content="0;url=http://127.0.0.1/x?y" />...
 
 
-.handle_child(), .body(), .redirect(), 
+Redirection
+===========
 
-Forms
-=====  
+    >>> class InlineRedirect(Page):
+    ...     def body(self):
+    ...         return self.redirect('http://example.com/123')
+
+    >>> test(InlineRedirect)
+    HTTP/1.0 302 Found
+    Date: ...
+    Content-Type: text/html
+    Location: http://example.com/123
+    ...
+    ...<meta http-equiv="refresh" content="0;url=http://example.com/123" />...
+
+    >>> from web_haiku import Redirector
+    >>> class TemplateRedirect(Page):
+    ...     body = Redirector('http://example.com/$(?environ["REQUEST_METHOD"]?)')
+
+    >>> test(TemplateRedirect)
+    HTTP/1.0 302 Found
+    Date: ...
+    Content-Type: text/html
+    Location: http://example.com/GET
+    ...
+    ...<meta http-equiv="refresh" content="0;url=http://example.com/GET" />...
+    
+
+XXX REDIRECT_TO
+
+
+Form Handling
+=============
 
     >>> from web_haiku import Text, form_handler
     >>> class TestForm(Page):

@@ -4,8 +4,8 @@ import cgi, string, new, sys
 from wsgiref.util import shift_path_info, application_uri
 
 __all__ = [
-    "Page", "form_handler", "HTML", "Text", "Template", "HTTP", "test",
-    "EvalTemplate", "EvalMap", "Method",
+    "Page", "form_handler", "HTML", "Text", "Template", "HTTP", "expose",
+    "test", "Redirector", "EvalTemplate", "EvalMap", "Method",
 ]
 
 class Method(object):
@@ -203,6 +203,14 @@ class Template(HTML):
 
 
 
+def expose(func):
+    """Wrapper/decorator that marks a method as a subpage"""
+    class _Page(Page):
+        def body(self):
+            return func(self.parent)
+    return _Page
+
+
 class Page(object):
     """A generic web location"""
 
@@ -233,14 +241,6 @@ class Page(object):
             getattr(cls,k)  # AttributeError here means bad keyword arg
             setattr(self,k,v)
         self.setup()    # perform any dynamic initialization
-
-
-
-
-
-
-
-
 
 
 
@@ -633,19 +633,19 @@ class TestContainer(Page):
 TestContainer.c = TestContainer     # allow some depth to the test...
 
 
+def Redirector(url):
+    """Create a method that will go to a predefined URL (w/embedded vars)"""
+    url = Text(url)
+    def method(self):
+        return self.redirect(url.render(self))
+    return method
+
 def additional_tests():
     import doctest
     return doctest.DocFileSuite(
         'README.txt',
         optionflags=doctest.ELLIPSIS|doctest.REPORT_ONLY_FIRST_FAILURE,
     )
-
-
-
-
-
-
-
 
 
 
