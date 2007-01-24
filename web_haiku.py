@@ -61,8 +61,8 @@ class EvalMap(object):
         return True
 
     def __getitem__(self, key):
-        if key.startswith('(?'):
-            return eval(key[2:].rstrip(')').rstrip('?').strip(),
+        if key.startswith('(?') or '.' in key:
+            return eval(key.lstrip('(').rstrip(')').strip('?').strip(),
                         sys.modules[self.module].__dict__, self)
         elif key in self.extra:
             return self.extra[key]
@@ -78,7 +78,7 @@ class EvalMap(object):
         raise KeyError(key)
 
 class EvalTemplate(string.Template):
-    idpattern = r'[_a-z][_a-z0-9]*|\(\?[^?]*\?\)'
+    idpattern = r'[_a-z][_a-z0-9]*(?:\.[_a-z][_a-z0-9]*)*|\(\?[^?]*\?\)'
 
 class Text(Method):
     """Text template w/string substitution that can be used as a method
