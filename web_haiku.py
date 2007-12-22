@@ -1,11 +1,11 @@
 """Yet another WSGI micro-framework..."""
-
 import cgi, string, new, sys
 from wsgiref.util import shift_path_info, application_uri
+from peak import context
 
 __all__ = [
     "Page", "form_handler", "HTML", "Text", "Template", "HTTP", "expose",
-    "test", "Redirector", "EvalTemplate", "EvalMap", "Method",
+    "test", "Redirector", "EvalTemplate", "EvalMap", "Method", "DB"
 ]
 
 class Method(object):
@@ -449,11 +449,17 @@ class Page(object):
 
 
 
+class DB(context.Service):
     db = None   # DBAPI database connection object
 
     def db_connect(self):
         """Override this in a subclass to return a DBAPI connection object"""
         raise NotImplementedError
+
+    def get_db(self):
+        if self.db is None:
+            self.db = self.db_connect()
+        return self.db
 
     def cursor(self, *args, **kw):
         """Create and return a cursor (after optionally running a query on it)
@@ -463,11 +469,7 @@ class Page(object):
         used to set cursor attributes prior to the ``execute()`` (if
         applicable).
         """
-        db = self.db
-        if db is None:
-            db = self.db = self.db_connect()
-
-        cursor = db.cursor()
+        cursor = self.get_db().cursor()
         for k, v in kw.items():
             setattr(cursor, k, v)
 
@@ -486,8 +488,6 @@ class Row(object):
 
     def __init__(self, cursor, row):
         self.__dict__ = dict(zip([d[0]for d in cursor.description], row))
-
-
 
 
 def test(app, environ={}, form={}, **kw):

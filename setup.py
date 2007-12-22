@@ -36,7 +36,7 @@ setup(
     test_suite = 'web_haiku',
     py_modules = ['web_haiku'],
 
-    install_requires = 'wsgiref>=0.1',
+    install_requires = ['wsgiref>=0.1', 'Contextual>=0.7a1dev'],
 
 
     entry_points = {
